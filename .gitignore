@@ -1,0 +1,9 @@
+node_modules/
+dist/
+logs/
+*.log
+network-*.json
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

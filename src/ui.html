@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Network Tracer</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<style>
+:root {
+  --bg: #ffffff; --bg2: #f3f4f6; --bg3: #e5e7eb; --fg: #1f2937; --fg2: #6b7280;
+  --border: #d1d5db; --accent: #2563eb; --accent-fg: #fff; --sel: #dbeafe;
+  --err: #dc2626; --err-bg: #fef2f2; --warn: #b45309; --ok: #15803d;
+  --k: #881391; --s: #c41a16; --n: #1c00cf; --b: #0d22aa; --nl: #808080;
+  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1f22; --bg2: #26282c; --bg3: #33363b; --fg: #e3e3e3; --fg2: #9aa0a6;
+    --border: #3c4043; --accent: #4f8cff; --accent-fg: #fff; --sel: #2d3b55;
+    --err: #f28b82; --err-bg: #3a2324; --warn: #fdd663; --ok: #81c995;
+    --k: #e48ee8; --s: #f29766; --n: #9980ff; --b: #9980ff; --nl: #9aa0a6;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+button { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+button:hover { background: var(--bg3); }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button.danger { color: var(--err); }
+input[type=text], select { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+input[type=text]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.hidden { display: none !important; }
+
+/* Start screen */
+#start { height: 100%; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.start-card { width: 100%; max-width: 640px; }
+.start-card h1 { font-size: 22px; margin: 0 0 4px; }
+.start-card p { color: var(--fg2); margin: 0 0 20px; }
+.url-row { display: flex; gap: 8px; }
+.url-row select { flex: 0 0 auto; }
+.url-row input { flex: 1; min-width: 0; padding: 9px 10px; font-size: 14px; }
+.url-row button { padding: 9px 18px; font-size: 14px; }
+#startErr { color: var(--err); margin-top: 10px; min-height: 18px; }
+#recent { margin-top: 16px; }
+#recent .item { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: var(--fg2); }
+#recent .item:hover { background: var(--bg2); color: var(--fg); }
+#recent .item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#recent .item b { font-weight: normal; padding: 0 6px; border-radius: 4px; }
+#recent .item b:hover { background: var(--bg3); }
+
+/* Main */
+#main { height: 100%; display: flex; flex-direction: column; }
+.topbar, .toolbar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg2); flex-wrap: wrap; }
+.topbar .target { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--fg2); display: inline-block; flex: 0 0 auto; }
+.dot.on { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.25); }
+#filter { flex: 1 1 220px; min-width: 160px; }
+.chips { display: flex; gap: 2px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--border); background: var(--bg); padding: 2px 9px; border-radius: 10px; font-size: 12px; }
+.chip.on { background: var(--bg3); border-color: var(--fg2); font-weight: 600; }
+.toolbar label { display: flex; align-items: center; gap: 4px; color: var(--fg2); white-space: nowrap; }
+#count { color: var(--fg2); white-space: nowrap; }
+#notice { padding: 6px 10px; background: var(--err-bg); color: var(--err); border-bottom: 1px solid var(--border); }
+
+.body { flex: 1; display: flex; min-height: 0; }
+.list { flex: 1; overflow: auto; min-width: 0; }
+table.grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.grid th { position: sticky; top: 0; background: var(--bg2); text-align: left; font-weight: 500; color: var(--fg2); border-bottom: 1px solid var(--border); padding: 4px 8px; z-index: 1; }
+.grid td { padding: 3px 8px; border-bottom: 1px solid var(--bg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid tbody tr { cursor: pointer; }
+.grid tbody tr:hover { background: var(--bg2); }
+.grid tbody tr.sel { background: var(--sel); }
+.grid tbody tr.err td { color: var(--err); }
+.grid tbody tr.pending td { color: var(--fg2); }
+.grid .num { text-align: right; }
+.empty { padding: 40px; text-align: center; color: var(--fg2); }
+
+/* Detail */
+.detail { width: 55%; min-width: 360px; border-left: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+.detail-head { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--border); background: var(--bg2); padding: 0 6px; }
+.tabs { display: flex; flex: 1; overflow-x: auto; }
+.tab { border: 0; border-radius: 0; background: transparent; padding: 8px 12px; border-bottom: 2px solid transparent; }
+.tab.on { border-bottom-color: var(--accent); color: var(--accent); }
+.detail-actions { display: flex; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.detail-body { flex: 1; overflow: auto; padding: 8px 12px 24px; }
+details.sec { margin-bottom: 8px; }
+details.sec > summary { cursor: pointer; font-weight: 600; padding: 6px 0; user-select: none; }
+details.sec > summary .src { float: right; font-weight: normal; color: var(--accent); font-size: 12px; }
+.kv { display: grid; grid-template-columns: minmax(120px, 30%) 1fr; gap: 2px 12px; padding-left: 14px; }
+.kv .k { color: var(--fg2); font-weight: 500; word-break: break-all; }
+.kv .v { font-family: var(--mono); font-size: 12px; word-break: break-all; white-space: pre-wrap; }
+pre.code { margin: 0; padding: 8px; background: var(--bg2); border-radius: 6px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+.j-k { color: var(--k); } .j-s { color: var(--s); } .j-n { color: var(--n); } .j-b { color: var(--b); } .j-null { color: var(--nl); }
+.note { color: var(--fg2); padding: 12px 0; }
+.status-ok { color: var(--ok); } .status-err { color: var(--err); } .status-warn { color: var(--warn); }
+.preview-img { max-width: 100%; background: repeating-conic-gradient(var(--bg3) 0 25%, transparent 0 50%) 0 0/16px 16px; }
+
+.timing-row { display: grid; grid-template-columns: 140px 1fr 80px; gap: 8px; align-items: center; padding: 3px 0; }
+.timing-bar { height: 10px; background: var(--bg3); border-radius: 2px; position: relative; }
+.timing-bar i { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+
+.frames { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.frames td, .frames th { padding: 3px 6px; border-bottom: 1px solid var(--bg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.frames tr { cursor: pointer; }
+.frames tr.sent td { background: color-mix(in srgb, #22c55e 10%, transparent); }
+.frames tr.sel td { background: var(--sel); }
+.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 6px 14px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.show { opacity: .92; }
+
+@media (max-width: 900px) {
+  .body { flex-direction: column; }
+  .detail { width: 100%; min-width: 0; height: 55%; border-left: 0; border-top: 1px solid var(--border); }
+  .col-domain, .col-type { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- START SCREEN -->
+<section id="start">
+  <div class="start-card">
+    <h1 style="display:flex;align-items:center;gap:10px"><img src="/icon.svg" width="36" height="36" alt="">Network Tracer</h1>
+    <p>Nhập địa chỉ trang web. Một cửa sổ trình duyệt sẽ mở ra và mọi request được hiển thị ở đây.</p>
+    <form id="startForm" class="url-row">
+      <select id="proto"><option>https://</option><option>http://</option></select>
+      <input id="urlInput" type="text" placeholder="example.com/path" autocomplete="off" autofocus>
+      <button class="primary" type="submit" id="startBtn">Bắt đầu</button>
+    </form>
+    <div id="startErr"></div>
+    <div id="recent"></div>
+  </div>
+</section>
+
+<!-- MAIN SCREEN -->
+<section id="main" class="hidden">
+  <div class="topbar">
+    <span class="dot" id="dot"></span>
+    <span class="target mono" id="target"></span>
+    <button id="restartBtn">Mở lại</button>
+    <button id="stopBtn" class="danger">Dừng</button>
+    <button id="newBtn">Phiên mới</button>
+  </div>
+  <div class="toolbar">
+    <input id="filter" type="text" placeholder="Lọc: text, /regex/, -loại trừ, status:404, method:POST, domain:api">
+    <div class="chips" id="chips"></div>
+    <label><input type="checkbox" id="onlyErr"> Chỉ lỗi</label>
+    <label><input type="checkbox" id="autoScroll" checked> Tự cuộn</label>
+    <button id="clearBtn" class="danger">Xóa hết</button>
+    <button id="exportBtn">Xuất JSON</button>
+    <span id="count"></span>
+  </div>
+  <div id="notice" class="hidden"></div>
+  <div class="body">
+    <div class="list" id="list">
+      <table class="grid">
+        <colgroup><col style="width:34%"><col style="width:9%"><col style="width:8%"><col class="col-type" style="width:10%"><col class="col-domain" style="width:19%"><col style="width:10%"><col style="width:10%"></colgroup>
+        <thead><tr><th>Name</th><th>Status</th><th>Method</th><th class="col-type">Type</th><th class="col-domain">Domain</th><th class="num">Size</th><th class="num">Time</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="empty" id="empty">Chưa có request nào.</div>
+    </div>
+    <div class="detail hidden" id="detail">
+      <div class="detail-head">
+        <div class="tabs" id="tabs"></div>
+        <button id="closeDetail" title="Đóng" style="border:0;background:transparent">✕</button>
+      </div>
+      <div class="detail-actions">
+        <button id="copyUrl">Copy URL</button>
+        <button id="copyCurl">Copy cURL</button>
+        <button id="copyJson">Copy JSON</button>
+      </div>
+      <div class="detail-body" id="detailBody"></div>
+    </div>
+  </div>
+</section>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+// ---------- State ----------
+const entries = new Map(); // id -> summary
+const rowEls = new Map();  // id -> tr
+let selectedId = null, detail = null, tab = 'headers', typeFilter = 'all', status = {};
+
+// Giống bộ lọc của Chrome DevTools > Network
+const TYPES = [
+  ['all', 'All'], ['fetch', 'Fetch/XHR'], ['doc', 'Doc'], ['css', 'CSS'], ['js', 'JS'], ['font', 'Font'],
+  ['img', 'Img'], ['media', 'Media'], ['manifest', 'Manifest'], ['socket', 'Socket'], ['wasm', 'Wasm'], ['other', 'Other'],
+];
+function category(e) {
+  if (/wasm/i.test(e.mimeType || '') || /\.wasm(\?|$)/i.test(e.url)) return 'wasm';
+  switch (e.type) {
+    case 'xhr': case 'fetch': case 'eventsource': return 'fetch';
+    case 'document': return 'doc';
+    case 'stylesheet': return 'css';
+    case 'script': return 'js';
+    case 'font': return 'font';
+    case 'image': return 'img';
+    case 'media': case 'texttrack': return 'media';
+    case 'manifest': return 'manifest';
+    case 'websocket': return 'socket';
+    default: return 'other';
+  }
+}
+
+// ---------- Start screen ----------
+function renderRecent() {
+  const list = store.get('recentUrls', []);
+  $('recent').innerHTML = list.length ? '<div style="color:var(--fg2);margin-bottom:4px">Gần đây</div>' + list.map((u, i) =>
+    `<div class="item" data-i="${i}"><span class="mono">${esc(u)}</span><b data-del="${i}" title="Xóa">✕</b></div>`).join('') : '';
+}
+$('recent').addEventListener('click', (ev) => {
+  const list = store.get('recentUrls', []);
+  const del = ev.target.closest('[data-del]');
+  if (del) { list.splice(+del.dataset.del, 1); store.set('recentUrls', list); return renderRecent(); }
+  const item = ev.target.closest('.item');
+  if (item) startUrl(list[+item.dataset.i]);
+});
+$('urlInput').addEventListener('input', () => {
+  const m = $('urlInput').value.match(/^\s*(https?:\/\/)/i);
+  if (m) { $('proto').value = m[1].toLowerCase(); $('urlInput').value = $('urlInput').value.replace(/^\s*https?:\/\//i, ''); }
+});
+$('startForm').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const host = $('urlInput').value.trim();
+  if (!host) { $('startErr').textContent = 'Hãy nhập domain hoặc URL.'; return; }
+  startUrl($('proto').value + host);
+});
+
+async function startUrl(url) {
+  $('startErr').textContent = '';
+  $('startBtn').disabled = true; $('startBtn').textContent = 'Đang mở...';
+  try {
+    const r = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    const list = store.get('recentUrls', []).filter((u) => u !== url);
+    list.unshift(url); store.set('recentUrls', list.slice(0, 8));
+    showMain();
+  } catch (err) {
+    $('startErr').textContent = 'Lỗi: ' + err.message;
+    showStart();
+  } finally {
+    $('startBtn').disabled = false; $('startBtn').textContent = 'Bắt đầu';
+  }
+}
+function showStart() { $('start').classList.remove('hidden'); $('main').classList.add('hidden'); renderRecent(); $('urlInput').focus(); }
+function showMain() { $('start').classList.add('hidden'); $('main').classList.remove('hidden'); }
+
+// ---------- Topbar ----------
+function renderStatus() {
+  $('dot').classList.toggle('on', !!status.running);
+  $('target').textContent = status.url ? status.url : (status.lastUrl ? status.lastUrl + '  (đã dừng)' : '(chưa chạy)');
+  $('stopBtn').classList.toggle('hidden', !status.running);
+  $('restartBtn').classList.toggle('hidden', !!status.running || !status.lastUrl);
+}
+$('stopBtn').onclick = () => fetch('/api/stop', { method: 'POST' });
+$('restartBtn').onclick = () => status.lastUrl && startUrl(status.lastUrl);
+$('newBtn').onclick = async () => { if (status.running) await fetch('/api/stop', { method: 'POST' }); showStart(); };
+
+// ---------- Filter ----------
+$('chips').innerHTML = TYPES.map(([k, l]) => `<button class="chip${k === 'all' ? ' on' : ''}" data-t="${k}">${l}</button>`).join('');
+$('chips').onclick = (ev) => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  typeFilter = b.dataset.t;
+  for (const c of $('chips').children) c.classList.toggle('on', c === b);
+  applyFilter();
+};
+$('filter').addEventListener('input', () => applyFilter());
+$('onlyErr').addEventListener('change', () => applyFilter());
+
+function compileFilter() {
+  const terms = $('filter').value.trim().split(/\s+/).filter(Boolean);
+  return terms.map((t) => {
+    let neg = false;
+    if (t.startsWith('-') && t.length > 1) { neg = true; t = t.slice(1); }
+    let test;
+    const m = t.match(/^(status|method|domain|type|mime):(.+)$/i);
+    if (m) {
+      const key = m[1].toLowerCase(), val = m[2].toLowerCase();
+      test = (e) => {
+        if (key === 'status') return String(e.status ?? (e.state === 'failed' ? 'failed' : '')).startsWith(val);
+        if (key === 'method') return (e.method || '').toLowerCase() === val;
+        if (key === 'domain') return hostOf(e.url).toLowerCase().includes(val);
+        if (key === 'type') return (e.type || '').toLowerCase().includes(val);
+        if (key === 'mime') return (e.mimeType || '').toLowerCase().includes(val);
+      };
+    } else if (/^\/.+\/[a-z]*$/i.test(t)) {
+      try { const re = new RegExp(t.slice(1, t.lastIndexOf('/')), t.slice(t.lastIndexOf('/') + 1) || 'i'); test = (e) => re.test(e.url); }
+      catch { test = () => true; }
+    } else {
+      const low = t.toLowerCase();
+      test = (e) => e.url.toLowerCase().includes(low) || (e.method || '').toLowerCase() === low || String(e.status ?? '') === low;
+    }
+    return neg ? (e) => !test(e) : test;
+  });
+}
+const isErr = (e) => e.state === 'failed' || e.state === 'error' || (e.status >= 400);
+const typeMatch = (e) => typeFilter === 'all' || category(e) === typeFilter;
+let filters = [];
+const visible = (e) => typeMatch(e) && (!$('onlyErr').checked || isErr(e)) && filters.every((f) => f(e));
+function applyFilter() {
+  filters = compileFilter();
+  for (const [id, tr] of rowEls) tr.classList.toggle('hidden', !visible(entries.get(id)));
+  updateCount();
+}
+function updateCount() {
+  let n = 0; for (const tr of rowEls.values()) if (!tr.classList.contains('hidden')) n++;
+  $('count').textContent = `${n} / ${entries.size} request`;
+  $('empty').classList.toggle('hidden', n > 0);
+  $('empty').textContent = entries.size ? 'Không có request khớp bộ lọc.' : 'Chưa có request nào.';
+}
+
+// ---------- Rows ----------
+function hostOf(u) { try { return new URL(u).host; } catch { return ''; } }
+function nameOf(u) {
+  try { const x = new URL(u); if (x.protocol === 'data:') return u.slice(0, 60); const p = x.pathname.split('/').filter(Boolean).pop(); return (p || x.host) + x.search; }
+  catch { return u; }
+}
+function fmtSize(n) { if (n == null || n < 0) return ''; if (n < 1024) return n + ' B'; if (n < 1048576) return (n / 1024).toFixed(1) + ' kB'; return (n / 1048576).toFixed(1) + ' MB'; }
+function fmtMs(n) { if (n == null) return ''; return n < 1000 ? Math.round(n) + ' ms' : (n / 1000).toFixed(2) + ' s'; }
+function statusText(e) {
+  if (e.kind === 'ws') return e.state === 'open' ? '101 open' : e.state;
+  if (e.state === 'pending') return '(pending)';
+  if (e.state === 'failed') return e.status ? e.status : '(failed)';
+  return e.status ?? '';
+}
+function rowHtml(e) {
+  const size = e.kind === 'ws' ? `${e.frameCount || 0} msg` : fmtSize(e.size);
+  return `<td title="${esc(e.url)}">${esc(nameOf(e.url))}</td><td title="${esc(e.error || e.statusText || '')}">${esc(statusText(e))}</td>` +
+    `<td>${esc(e.method)}</td><td class="col-type">${esc(e.type)}</td><td class="col-domain">${esc(hostOf(e.url))}</td>` +
+    `<td class="num">${esc(size)}</td><td class="num">${esc(fmtMs(e.duration))}</td>`;
+}
+function upsert(e) {
+  const isNew = !entries.has(e.id);
+  entries.set(e.id, e);
+  let tr = rowEls.get(e.id);
+  if (!tr) { tr = document.createElement('tr'); tr.dataset.id = e.id; rowEls.set(e.id, tr); $('rows').appendChild(tr); }
+  tr.innerHTML = rowHtml(e);
+  tr.className = (isErr(e) ? 'err' : e.state === 'pending' ? 'pending' : '') + (e.id === selectedId ? ' sel' : '') + (visible(e) ? '' : ' hidden');
+  if (e.id === selectedId) scheduleDetailRefresh();
+  return isNew;
+}
+$('rows').addEventListener('click', (ev) => { const tr = ev.target.closest('tr'); if (tr) select(+tr.dataset.id); });
+document.addEventListener('keydown', (ev) => {
+  if (ev.target.tagName === 'INPUT' || selectedId == null) return;
+  if (ev.key === 'Escape') return closeDetail();
+  if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
+  const vis = [...rowEls.values()].filter((t) => !t.classList.contains('hidden'));
+  const i = vis.findIndex((t) => +t.dataset.id === selectedId);
+  const next = vis[i + (ev.key === 'ArrowDown' ? 1 : -1)];
+  if (next) { ev.preventDefault(); select(+next.dataset.id); next.scrollIntoView({ block: 'nearest' }); }
+});
+
+// ---------- SSE ----------
+let pending = [], raf = 0;
+function flush() {
+  raf = 0;
+  const list = $('list');
+  const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 30;
+  let added = false;
+  for (const e of pending) added = upsert(e) || added;
+  pending = [];
+  updateCount();
+  if (added && $('autoScroll').checked && atBottom) list.scrollTop = list.scrollHeight;
+}
+function connect() {
+  const es = new EventSource('/events');
+  es.addEventListener('status', (m) => {
+    const s = JSON.parse(m.data);
+    status = { ...s, lastUrl: s.url || status.lastUrl };
+    renderStatus();
+    if (s.running) showMain();
+    else if (!entries.size && !status.lastUrl) showStart();
+  });
+  es.addEventListener('snapshot', (m) => {
+    entries.clear(); rowEls.clear(); $('rows').innerHTML = '';
+    const list = JSON.parse(m.data);
+    list.forEach(upsert); updateCount();
+    if (list.length) showMain();
+  });
+  es.addEventListener('entry', (m) => { pending.push(JSON.parse(m.data)); if (!raf) raf = requestAnimationFrame(flush); });
+  es.addEventListener('cleared', () => { entries.clear(); rowEls.clear(); $('rows').innerHTML = ''; closeDetail(); updateCount(); });
+  es.addEventListener('notice', (m) => { const n = JSON.parse(m.data); $('notice').textContent = n.text; $('notice').classList.remove('hidden'); setTimeout(() => $('notice').classList.add('hidden'), 8000); });
+  es.onerror = () => { $('dot').classList.remove('on'); $('target').textContent = 'Mất kết nối tới tool, đang thử lại...'; };
+}
+
+// ---------- Toolbar actions ----------
+$('clearBtn').onclick = () => fetch('/api/clear', { method: 'POST' });
+$('exportBtn').onclick = async () => {
+  const ids = [...rowEls].filter(([, tr]) => !tr.classList.contains('hidden')).map(([id]) => id);
+  const r = await fetch('/api/entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+  const data = await r.json();
+  const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), target: status.lastUrl, count: data.length, entries: data }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `network-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast(`Đã xuất ${data.length} request`);
+};
+function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 1600); }
+async function copy(text, label) {
+  try { await navigator.clipboard.writeText(text); }
+  catch { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+  toast(`Đã copy ${label}`);
+}
+
+// ---------- Detail ----------
+async function select(id) {
+  selectedId = id;
+  for (const [i, tr] of rowEls) tr.classList.toggle('sel', i === id);
+  $('detail').classList.remove('hidden');
+  await loadDetail();
+}
+function closeDetail() { selectedId = null; detail = null; $('detail').classList.add('hidden'); for (const tr of rowEls.values()) tr.classList.remove('sel'); }
+$('closeDetail').onclick = closeDetail;
+let refreshT = 0;
+function scheduleDetailRefresh() { clearTimeout(refreshT); refreshT = setTimeout(loadDetail, 250); }
+async function loadDetail() {
+  if (selectedId == null) return;
+  const id = selectedId;
+  const r = await fetch('/api/entry/' + id);
+  if (!r.ok || id !== selectedId) return;
+  const keepScroll = detail && detail.id === id ? $('detailBody').scrollTop : 0;
+  detail = await r.json();
+  renderDetail();
+  $('detailBody').scrollTop = keepScroll;
+}
+function tabsFor(e) {
+  return e.kind === 'ws' ? [['headers', 'Headers'], ['messages', `Messages (${e.frames.length})`]]
+    : [['headers', 'Headers'], ['payload', 'Payload'], ['response', 'Response'], ['timing', 'Timing']];
+}
+$('tabs').onclick = (ev) => { const b = ev.target.closest('.tab'); if (b) { tab = b.dataset.tab; renderDetail(); } };
+function renderDetail() {
+  const e = detail; if (!e) return;
+  const tabs = tabsFor(e);
+  if (!tabs.some(([k]) => k === tab)) tab = 'headers';
+  $('tabs').innerHTML = tabs.map(([k, l]) => `<button class="tab${k === tab ? ' on' : ''}" data-tab="${k}">${esc(l)}</button>`).join('');
+  $('copyCurl').classList.toggle('hidden', e.kind === 'ws');
+  const fn = { headers: renderHeaders, payload: renderPayload, response: renderResponse, timing: renderTiming, messages: renderMessages }[tab];
+  $('detailBody').innerHTML = fn(e);
+}
+$('copyUrl').onclick = () => detail && copy(detail.url, 'URL');
+$('copyJson').onclick = () => detail && copy(JSON.stringify(detail, null, 2), 'JSON');
+$('copyCurl').onclick = () => detail && copy(toCurl(detail), 'cURL');
+
+function toCurl(e) {
+  const q = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
+  const parts = ['curl ' + q(e.url)];
+  if (e.method !== 'GET') parts.push('-X ' + e.method);
+  const hs = e.requestHeadersArray || Object.entries(e.requestHeaders || {}).map(([name, value]) => ({ name, value }));
+  for (const h of hs) if (!h.name.startsWith(':')) parts.push('-H ' + q(`${h.name}: ${h.value}`));
+  if (e.postData != null) parts.push('--data-raw ' + q(e.postData));
+  return parts.join(' \\\n  ');
+}
+
+function kvTable(obj) {
+  const rows = Array.isArray(obj) ? obj.map((h) => [h.name, h.value]) : Object.entries(obj || {});
+  if (!rows.length) return '<div class="note" style="padding-left:14px">(trống)</div>';
+  rows.sort((a, b) => a[0].localeCompare(b[0]));
+  return `<div class="kv">${rows.map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>`).join('')}</div>`;
+}
+function rawHeaders(arr, obj) {
+  const rows = arr || Object.entries(obj || {}).map(([name, value]) => ({ name, value }));
+  return `<pre class="code">${esc(rows.map((h) => `${h.name}: ${h.value}`).join('\n'))}</pre>`;
+}
+function section(title, inner, id, rawInner) {
+  const raw = rawInner ? ` <a class="src" href="#" data-raw="${id}">view source</a>` : '';
+  return `<details class="sec" open><summary>${esc(title)}${raw}</summary><div data-pretty="${id}">${inner}</div>` +
+    (rawInner ? `<div data-rawv="${id}" class="hidden">${rawInner}</div>` : '') + '</details>';
+}
+$('detailBody').addEventListener('click', (ev) => {
+  const a = ev.target.closest('[data-raw]');
+  if (a) {
+    ev.preventDefault();
+    const id = a.dataset.raw;
+    const p = $('detailBody').querySelector(`[data-pretty="${id}"]`), r = $('detailBody').querySelector(`[data-rawv="${id}"]`);
+    const showRaw = r.classList.contains('hidden');
+    r.classList.toggle('hidden', !showRaw); p.classList.toggle('hidden', showRaw);
+    a.textContent = showRaw ? 'view parsed' : 'view source';
+    return;
+  }
+  const fr = ev.target.closest('tr[data-frame]');
+  if (fr) { selFrame = +fr.dataset.frame; $('detailBody').innerHTML = renderMessages(detail); }
+});
+
+function statusClass(e) { return isErr(e) ? 'status-err' : e.status >= 300 ? 'status-warn' : 'status-ok'; }
+function renderHeaders(e) {
+  const general = {
+    'Request URL': e.url,
+    'Request Method': e.method,
+    'Status Code': e.kind === 'ws' ? e.state : (e.status != null ? `${e.status} ${e.statusText || ''}` : e.state),
+  };
+  if (e.error) general['Error'] = e.error;
+  if (e.remoteAddress) general['Remote Address'] = `${e.remoteAddress.ipAddress}:${e.remoteAddress.port}`;
+  if (e.type) general['Resource Type'] = e.type;
+  if (e.mimeType) general['MIME Type'] = e.mimeType;
+  if (e.fromServiceWorker) general['Served By'] = 'Service Worker';
+  if (e.security) { general['TLS'] = `${e.security.protocol || ''} — ${e.security.subjectName || ''} (issuer: ${e.security.issuer || ''})`; }
+  if (e.startedAt) general['Started'] = new Date(e.startedAt).toLocaleString();
+  let html = `<details class="sec" open><summary>General</summary><div class="kv">${Object.entries(general).map(([k, v]) =>
+    `<div class="k">${esc(k)}</div><div class="v${k === 'Status Code' || k === 'Error' ? ' ' + statusClass(e) : ''}">${esc(v)}</div>`).join('')}</div></details>`;
+  if (e.kind === 'ws') return html + renderWsHandshake(e);
+  const rc = e.responseHeadersArray ? e.responseHeadersArray.length : Object.keys(e.responseHeaders || {}).length;
+  const qc = e.requestHeadersArray ? e.requestHeadersArray.length : Object.keys(e.requestHeaders || {}).length;
+  if (e.responseHeaders) html += section(`Response Headers (${rc})`, kvTable(e.responseHeadersArray || e.responseHeaders), 'resh', rawHeaders(e.responseHeadersArray, e.responseHeaders));
+  html += section(`Request Headers (${qc})`, kvTable(e.requestHeadersArray || e.requestHeaders), 'reqh', rawHeaders(e.requestHeadersArray, e.requestHeaders));
+  return html;
+}
+
+// ---------- WebSocket handshake + phân tích xác thực ----------
+const lowerKeys = (o) => Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k.toLowerCase(), v]));
+const JWT_RE = /eyJ[\w-]+\.eyJ[\w-]+\.[\w-]*/g;
+const AUTH_KEY_RE = /token|auth|jwt|ticket|session|sid|key|sig|bearer|access/i;
+function decodeJwt(t) {
+  try {
+    const part = (s) => JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)))));
+    const [h, p] = t.split('.');
+    return { header: part(h), payload: part(p) };
+  } catch { return null; }
+}
+function jwtBlock(where, token) {
+  const d = decodeJwt(token);
+  if (!d) return '';
+  const p = d.payload, rows = {};
+  for (const k of ['iss', 'sub', 'aud', 'azp', 'sid', 'typ', 'scope', 'preferred_username', 'email', 'name']) if (p[k] != null) rows[k] = Array.isArray(p[k]) ? p[k].join(', ') : p[k];
+  for (const k of ['iat', 'nbf', 'exp']) if (p[k]) rows[k] = `${p[k]}  (${new Date(p[k] * 1000).toLocaleString()})`;
+  if (p.exp) rows['còn hạn'] = p.exp * 1000 > Date.now() ? `còn ${Math.round((p.exp * 1000 - Date.now()) / 60000)} phút` : 'ĐÃ HẾT HẠN';
+  rows['alg'] = d.header.alg;
+  return section(`JWT tìm thấy ở ${where}`, kvTable(rows), 'jwt-' + where.replace(/\W/g, ''), `<pre class="code">${hlJson(d)}</pre>`);
+}
+function analyzeWsAuth(e) {
+  const hs = e.handshake || {};
+  const rq = lowerKeys(hs.requestHeaders);
+  const found = [], jwts = [];
+  const scan = (where, text) => { for (const m of String(text || '').matchAll(JWT_RE)) jwts.push([where, m[0]]); };
+
+  let params = [];
+  try { params = [...new URL(e.url).searchParams]; } catch {}
+  const authParams = params.filter(([k]) => AUTH_KEY_RE.test(k));
+  if (authParams.length) found.push(`<b>Query string</b>: ${authParams.map(([k]) => esc(k)).join(', ')}`);
+  params.forEach(([k, v]) => scan('query ' + k, v));
+
+  if (rq['sec-websocket-protocol']) { found.push(`<b>Sec-WebSocket-Protocol</b>: <span class="mono">${esc(String(rq['sec-websocket-protocol']).slice(0, 80))}</span> — cách phổ biến để truyền token vì WebSocket API của trình duyệt không cho set header`); scan('Sec-WebSocket-Protocol', rq['sec-websocket-protocol']); }
+  if (rq['authorization']) { found.push('<b>Authorization header</b>'); scan('Authorization', rq['authorization']); }
+  if (rq['cookie']) {
+    const names = String(rq['cookie']).split(/;\s*/).map((c) => c.split('=')[0]).filter(Boolean);
+    const authNames = names.filter((n) => AUTH_KEY_RE.test(n));
+    found.push(`<b>Cookie</b> (${names.length}): <span class="mono">${esc(names.join(', '))}</span>${authNames.length ? ` — nghi là auth: <b class="mono">${esc(authNames.join(', '))}</b>` : ''}`);
+    String(rq['cookie']).split(/;\s*/).forEach((c) => { const i = c.indexOf('='); scan('cookie ' + c.slice(0, i), c.slice(i + 1)); });
+  }
+  const firstSent = e.frames.find((f) => f.dir === 'sent');
+  const firstRecv = e.frames.find((f) => f.dir === 'recv');
+  if (firstSent && (AUTH_KEY_RE.test(firstSent.data) || /eyJ[\w-]+\.eyJ/.test(firstSent.data))) { found.push('<b>Frame đầu tiên client gửi</b> có chứa từ khóa auth/token'); }
+  if (firstSent) scan('frame gửi đầu tiên', firstSent.data);
+
+  const notes = [];
+  if (!e.handshake) notes.push('Chưa bắt được handshake (CDP không khả dụng hoặc WebSocket mở trước khi hook). Bấm "Mở lại" để thử lại.');
+  else if (!hs.requestHeaders) notes.push('Chưa nhận được header handshake.');
+  if (firstRecv && (!firstSent || firstRecv.time <= firstSent.time)) notes.push(`Server gửi trước khi client gửi gì: <span class="mono">${esc(firstRecv.data.slice(0, 100))}</span> → xác thực đã xong ở bước handshake.`);
+  if (e.handshake && !found.length) notes.push('Không thấy token ở query, header hay cookie. Có thể server xác thực theo IP/Origin, hoặc token được gửi theo cách tool chưa nhận diện — xem kỹ Request Headers bên dưới.');
+  return { found, notes, jwts };
+}
+function renderWsHandshake(e) {
+  const hs = e.handshake || {};
+  const a = analyzeWsAuth(e);
+  let html = `<details class="sec" open><summary>Phân tích xác thực</summary><div style="padding-left:14px">` +
+    (a.found.length ? `<div style="margin-bottom:6px">Token/credential có thể nằm ở:</div><ul style="margin:0 0 8px;padding-left:18px">${a.found.map((f) => `<li>${f}</li>`).join('')}</ul>` : '') +
+    a.notes.map((n) => `<div class="note" style="padding:4px 0">${n}</div>`).join('') + '</div></details>';
+  const seen = new Set();
+  for (const [where, t] of a.jwts) if (!seen.has(t)) { seen.add(t); html += jwtBlock(where, t); }
+  if (hs.status) html += `<details class="sec" open><summary>Handshake</summary><div class="kv"><div class="k">Status</div><div class="v ${hs.status === 101 ? 'status-ok' : 'status-err'}">${esc(hs.status + ' ' + (hs.statusText || ''))}</div>${hs.frameError ? `<div class="k">Frame error</div><div class="v status-err">${esc(hs.frameError)}</div>` : ''}</div></details>`;
+  if (hs.responseHeaders) html += section(`Response Headers (${Object.keys(hs.responseHeaders).length})`, kvTable(hs.responseHeaders), 'wsresh', `<pre class="code">${esc(hs.responseHeadersText || Object.entries(hs.responseHeaders).map(([k, v]) => `${k}: ${v}`).join('\n'))}</pre>`);
+  if (hs.requestHeaders) html += section(`Request Headers (${Object.keys(hs.requestHeaders).length})`, kvTable(hs.requestHeaders), 'wsreqh', `<pre class="code">${esc(hs.requestHeadersText || Object.entries(hs.requestHeaders).map(([k, v]) => `${k}: ${v}`).join('\n'))}</pre>`);
+  return html;
+}
+
+function renderPayload(e) {
+  let html = '';
+  let params = [];
+  try { params = [...new URL(e.url).searchParams]; } catch {}
+  if (params.length) {
+    html += section(`Query String Parameters (${params.length})`,
+      `<div class="kv">${params.map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>`).join('')}</div>`,
+      'qs', `<pre class="code">${esc(new URL(e.url).search.slice(1))}</pre>`);
+  }
+  if (e.postData != null) {
+    const ct = (e.requestHeaders?.['content-type'] || '').toLowerCase();
+    const json = tryJson(e.postData);
+    let pretty;
+    if (json !== undefined) pretty = `<pre class="code">${hlJson(json)}</pre>`;
+    else if (ct.includes('application/x-www-form-urlencoded')) pretty = `<div class="kv">${[...new URLSearchParams(e.postData)].map(([k, v]) => `<div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>`).join('')}</div>`;
+    else pretty = `<pre class="code">${esc(e.postData)}</pre>`;
+    html += section(`Request Payload${ct ? ' — ' + ct.split(';')[0] : ''}`, pretty, 'body', `<pre class="code">${esc(e.postData)}</pre>`);
+  }
+  return html || '<div class="note">Request này không có query string hay body.</div>';
+}
+
+function renderResponse(e) {
+  if (e.state === 'pending') return '<div class="note">Đang chờ response...</div>';
+  if (e.state === 'failed') return `<div class="note status-err">Request lỗi: ${esc(e.error)}</div>`;
+  if (e.bodyEncoding === 'base64' && /^image\//.test(e.mimeType)) {
+    return `<img class="preview-img" src="data:${esc(e.mimeType)};base64,${e.body}"><div class="note">${esc(e.mimeType)} — ${fmtSize(e.size)}</div>`;
+  }
+  if (e.bodyEncoding === 'omitted') return `<div class="note">Body dạng binary (${esc(e.mimeType || 'unknown')}, ${fmtSize(e.size)}) — không lưu.</div>`;
+  if (e.bodyEncoding === 'unavailable' || e.body == null) return `<div class="note">Không lấy được body${e.bodyError ? ': ' + esc(e.bodyError) : ''} (thường gặp với redirect hoặc response rỗng).</div>`;
+  if (e.body === '') return '<div class="note">Body rỗng.</div>';
+  const trunc = e.bodyTruncated ? '<div class="note">Body đã bị cắt bớt (giới hạn 2MB).</div>' : '';
+  const json = tryJson(e.body);
+  if (json !== undefined) return trunc + section('JSON', `<pre class="code">${hlJson(json)}</pre>`, 'resp', `<pre class="code">${esc(e.body)}</pre>`);
+  return trunc + `<pre class="code">${esc(e.body)}</pre>`;
+}
+
+function renderTiming(e) {
+  const t = e.timing;
+  if (!t || t.startTime === undefined) return '<div class="note">Không có dữ liệu timing.</div>';
+  const span = (a, b) => (a >= 0 && b >= 0 && b >= a) ? [a, b] : null;
+  const phases = [
+    ['DNS Lookup', span(t.domainLookupStart, t.domainLookupEnd), '#10b981'],
+    ['Initial Connection', span(t.connectStart, t.connectEnd), '#f59e0b'],
+    ['SSL', span(t.secureConnectionStart, t.connectEnd), '#a855f7'],
+    ['Waiting (TTFB)', span(t.requestStart, t.responseStart), '#22c55e'],
+    ['Content Download', span(t.responseStart, t.responseEnd), '#3b82f6'],
+  ];
+  const total = Math.max(1, t.responseEnd > 0 ? t.responseEnd : (e.duration || 1), ...phases.filter((p) => p[1]).map((p) => p[1][1]));
+  let html = '<details class="sec" open><summary>Timing</summary>';
+  for (const [name, s, color] of phases) {
+    html += `<div class="timing-row"><span>${name}</span><div class="timing-bar">${s ? `<i style="left:${s[0] / total * 100}%;width:${Math.max(0.5, (s[1] - s[0]) / total * 100)}%;background:${color}"></i>` : ''}</div><span class="num mono">${s ? fmtMs(s[1] - s[0]) : '—'}</span></div>`;
+  }
+  html += `<div class="timing-row" style="font-weight:600"><span>Tổng</span><span></span><span class="num mono">${fmtMs(t.responseEnd > 0 ? t.responseEnd : e.duration)}</span></div></details>`;
+  if (e.sizes) html += section('Sizes', kvTable({ 'Request headers': fmtSize(e.sizes.requestHeadersSize), 'Request body': fmtSize(e.sizes.requestBodySize), 'Response headers': fmtSize(e.sizes.responseHeadersSize), 'Response body': fmtSize(e.sizes.responseBodySize) }), 'sizes');
+  html += section('Raw timing (ms, tính từ startTime)', `<pre class="code">${hlJson(t)}</pre>`, 'rawt');
+  return html;
+}
+
+let selFrame = null;
+function renderMessages(e) {
+  if (!e.frames.length) return '<div class="note">Chưa có message nào.</div>';
+  const t0 = e.startedAt;
+  let html = '<table class="frames mono"><colgroup><col style="width:28px"><col><col style="width:80px"><col style="width:90px"></colgroup><thead><tr><th></th><th>Data</th><th>Length</th><th>Time</th></tr></thead><tbody>';
+  e.frames.forEach((f, i) => {
+    html += `<tr data-frame="${i}" class="${f.dir === 'sent' ? 'sent' : ''}${i === selFrame ? ' sel' : ''}"><td>${f.dir === 'sent' ? '⬆' : '⬇'}</td><td>${esc(f.binary ? '[binary] ' + f.data.slice(0, 80) : f.data.slice(0, 200))}</td><td>${f.length}</td><td>${new Date(f.time).toLocaleTimeString()}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  const f = e.frames[selFrame];
+  if (f) {
+    const json = f.binary ? undefined : tryJson(f.data);
+    html += `<div style="margin-top:10px">${section(`${f.dir === 'sent' ? 'Sent' : 'Received'} — ${new Date(f.time).toLocaleTimeString()}${f.truncated ? ' (đã cắt)' : ''}`,
+      `<pre class="code">${json !== undefined ? hlJson(json) : esc(f.data)}</pre>`, 'frame')}</div>`;
+  }
+  return html;
+}
+
+function tryJson(s) { if (typeof s !== 'string') return undefined; const t = s.trim(); if (!/^[[{]/.test(t)) return undefined; try { return JSON.parse(t); } catch { return undefined; } }
+function hlJson(v) {
+  return esc(JSON.stringify(v, null, 2)).replace(/(&quot;(?:\\.|[^&]|&(?!quot;))*?&quot;)(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g, (m, str, colon, bool) => {
+    if (str) return colon ? `<span class="j-k">${str}</span>${colon}` : `<span class="j-s">${str}</span>`;
+    if (bool) return `<span class="j-b">${m}</span>`;
+    if (m === 'null') return `<span class="j-null">${m}</span>`;
+    return `<span class="j-n">${m}</span>`;
+  });
+}
+
+renderRecent();
+connect();
+})();
+</script>
+</body>
+</html>

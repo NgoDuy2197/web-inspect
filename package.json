@@ -1,0 +1,32 @@
+{
+  "name": "network-tracer",
+  "version": "1.0.0",
+  "description": "Mở trang web bằng trình duyệt và xem toàn bộ request/response/WebSocket trên giao diện giống DevTools.",
+  "main": "src/server.js",
+  "bin": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "icon": "node scripts/make-icon.js",
+    "build": "node scripts/build.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.61.1"
+  },
+  "pkg": {
+    "assets": [
+      "src/ui.html",
+      "assets/icon.svg",
+      "node_modules/playwright-core/**/*"
+    ],
+    "targets": [
+      "node18-win-x64"
+    ],
+    "outputPath": "dist"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.13.1",
+    "resedit": "^2.0.3"
+  }
+}
